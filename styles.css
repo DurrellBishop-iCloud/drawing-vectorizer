@@ -110,12 +110,20 @@ body.bitmap-editor-open .panel {
   padding: 8px;
 }
 
-body.bitmap-editor-open .brand {
+body.bitmap-editor-open .brand,
+body.vector-result-open .brand {
   display: none;
 }
 
-body.bitmap-editor-open .flow-controls {
+body.bitmap-editor-open .flow-controls,
+body.vector-result-open .flow-controls {
   justify-content: flex-start;
+}
+
+body.vector-result-open .panel {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
 }
 
 .brand-title {
@@ -377,6 +385,12 @@ output {
   padding: 0;
 }
 
+.workspace.is-result {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+
 .empty-state {
   display: grid;
   place-items: center;
@@ -423,11 +437,24 @@ output {
   height: 100%;
 }
 
+.workspace.is-result .preview-grid {
+  display: none;
+}
+
 .workspace.is-editing .inspector-grid {
   display: none;
 }
 
-.workspace.is-editing figure {
+.workspace.is-result .inspector-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace.is-editing figure,
+.workspace.is-result figure {
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -693,7 +720,8 @@ canvas {
 
   .workspace.is-empty,
   .workspace:not(.has-vector),
-  .workspace.is-editing {
+  .workspace.is-editing,
+  .workspace.is-result {
     grid-template-rows: minmax(0, 1fr);
   }
 

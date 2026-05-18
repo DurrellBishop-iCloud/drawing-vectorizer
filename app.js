@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.9";
-const ASSET_VERSION = "2026-05-18-9";
+const APP_VERSION = "v2026.05.18.10";
+const ASSET_VERSION = "2026-05-18-10";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -81,6 +81,7 @@ const elements = {
   keepAreaTool: document.querySelector("#keepAreaTool"),
   eraseRadius: document.querySelector("#eraseRadius"),
   eraseRadiusValue: document.querySelector("#eraseRadiusValue"),
+  undoEditButton: document.querySelector("#undoEditButton"),
   clearEditsButton: document.querySelector("#clearEditsButton"),
   editStatus: document.querySelector("#editStatus"),
   absoluteValue: document.querySelector("#absoluteValue"),
@@ -127,6 +128,8 @@ const state = {
   keepPointer: null,
   lastKeepTap: null,
   suppressKeepClickUntil: 0,
+  undoStack: [],
+  activeUndo: null,
   filteredZoom: 1,
   closeupZoom: Number(elements.closeupZoom.value),
   focusX: null,
@@ -170,24 +173,27 @@ function updateFlowUi() {
   const hasImage = Boolean(state.image);
   const hasVector = Boolean(state.svgUrl || state.baseline);
   const isEditing = hasImage && state.editorOpen;
+  const isResult = hasVector && !isEditing;
 
   elements.appRoot.dataset.flow = hasVector ? "vector" : hasImage ? "image" : "empty";
   document.body.classList.toggle("bitmap-editor-open", isEditing);
+  document.body.classList.toggle("vector-result-open", isResult);
   elements.emptyState.hidden = hasImage;
   elements.loadMenu.hidden = isEditing;
   elements.editButton.hidden = !hasImage;
   elements.traceButton.hidden = !hasImage || isEditing;
-  elements.settingsMenu.hidden = !hasImage || isEditing;
+  elements.settingsMenu.hidden = !hasImage || isEditing || isResult;
   elements.bitmapTools.hidden = !isEditing;
   elements.downloadLink.hidden = !hasVector || isEditing;
-  elements.sourceFigure.hidden = !hasImage;
+  elements.sourceFigure.hidden = !hasImage || isResult;
   elements.filteredFigure.hidden = !isEditing;
-  elements.maskFigure.hidden = !hasVector;
+  elements.maskFigure.hidden = !hasVector || isResult;
   elements.svgFigure.hidden = !hasVector;
-  elements.closeupFigure.hidden = !hasVector;
+  elements.closeupFigure.hidden = !hasVector || isResult;
   elements.workspace?.classList.toggle("is-empty", !hasImage);
   elements.workspace?.classList.toggle("has-vector", hasVector);
   elements.workspace?.classList.toggle("is-editing", isEditing);
+  elements.workspace?.classList.toggle("is-result", isResult);
   elements.editButton.textContent = isEditing ? "Done" : "Edit";
   elements.editButton.classList.toggle("active", isEditing);
 
@@ -197,6 +203,8 @@ function updateFlowUi() {
     elements.svgFigure.hidden = true;
     elements.closeupFigure.hidden = true;
   }
+
+  updateUndoUi();
 }
 
 function updateCompareStatus() {
@@ -233,6 +241,16 @@ function updateOutputs() {
   elements.eraseRadiusValue.value = elements.eraseRadius.value;
   elements.filteredZoomValue.value = `${state.filteredZoom.toFixed(1).replace(".0", "")}x`;
   elements.closeupZoomValue.value = `${Number(elements.closeupZoom.value).toFixed(1).replace(".0", "")}x`;
+}
+
+function updateUndoUi() {
+  if (!elements.undoEditButton) {
+    return;
+  }
+
+  elements.undoEditButton.disabled = state.isBusy || !state.undoStack.length;
+  elements.undoEditButton.textContent = state.undoStack.length ? "Undo" : "Undo";
+  elements.clearEditsButton.disabled = state.isBusy || !state.editCount;
 }
 
 function isTouchPointer(event) {
@@ -312,6 +330,7 @@ function setBusy(isBusy) {
   elements.cameraInput.disabled = isBusy;
   elements.copySettingsButton.disabled = isBusy;
   elements.compareMode.disabled = isBusy;
+  updateUndoUi();
 }
 
 function setWorkingOverlay(isWorking, message = "Generating paths") {
@@ -650,7 +669,7 @@ function updateEditStatus() {
     : "Bitmap unedited";
 }
 
-function initBitmapEdits(width, height) {
+function initBitmapEdits(width, height, resetUndo = true) {
   state.editWidth = width;
   state.editHeight = height;
   state.editMask = new Uint8Array(width * height);
@@ -665,7 +684,14 @@ function initBitmapEdits(width, height) {
   state.keepPointer = null;
   state.lastKeepTap = null;
   state.suppressKeepClickUntil = 0;
+  state.activeUndo = null;
+
+  if (resetUndo) {
+    state.undoStack = [];
+  }
+
   updateEditStatus();
+  updateUndoUi();
   drawSelectionOverlay();
 }
 
@@ -685,6 +711,83 @@ function invalidateVectorResult() {
   if (elements.maskCanvas.width && elements.maskCanvas.height) {
     maskContext.clearRect(0, 0, elements.maskCanvas.width, elements.maskCanvas.height);
   }
+}
+
+function pushUndoState(label = "Undo edit") {
+  if (!state.editMask || !state.editWidth || !state.editHeight) {
+    return null;
+  }
+
+  const snapshot = {
+    label,
+    mask: state.editMask.slice(),
+    editCount: state.editCount,
+  };
+
+  state.undoStack.push(snapshot);
+
+  if (state.undoStack.length > 8) {
+    state.undoStack.shift();
+  }
+
+  updateUndoUi();
+  return snapshot;
+}
+
+function beginUndoAction(label) {
+  if (state.activeUndo) {
+    return;
+  }
+
+  const snapshot = pushUndoState(label);
+  state.activeUndo = snapshot
+    ? { snapshot, changed: false }
+    : null;
+}
+
+function markUndoChanged() {
+  if (state.activeUndo) {
+    state.activeUndo.changed = true;
+  }
+}
+
+function finishUndoAction() {
+  if (!state.activeUndo) {
+    return;
+  }
+
+  if (!state.activeUndo.changed) {
+    const last = state.undoStack[state.undoStack.length - 1];
+
+    if (last === state.activeUndo.snapshot) {
+      state.undoStack.pop();
+    }
+  }
+
+  state.activeUndo = null;
+  updateUndoUi();
+}
+
+function undoBitmapEdit() {
+  if (state.isBusy || !state.undoStack.length) {
+    return;
+  }
+
+  const previous = state.undoStack.pop();
+  state.editMask = previous.mask;
+  state.editCount = previous.editCount;
+  state.polygonPoints = [];
+  state.polygonPreviewPoint = null;
+  state.keepPointer = null;
+  state.lastKeepTap = null;
+  state.suppressKeepClickUntil = 0;
+  state.activeUndo = null;
+  redrawFilteredBitmapFromBase(false);
+  invalidateVectorResult();
+  drawSelectionOverlay();
+  updateEditStatus();
+  updateUndoUi();
+  setStatus("Undone");
 }
 
 function applyBitmapEdits(mask, width, height) {
@@ -791,6 +894,7 @@ function commitBitmapEdit(message = "Bitmap edited") {
   redrawFilteredBitmapFromBase(false);
   invalidateVectorResult();
   updateEditStatus();
+  updateUndoUi();
   setStatus(message);
 }
 
@@ -823,11 +927,14 @@ function eraseOutsidePolygon(polygon) {
   }
 
   ensureBitmapEditMask(width, height);
+  beginUndoAction("Undo lasso");
   setBusy(true);
   setWorkingOverlay(true, "Erasing bitmap area");
 
   afterWorkingOverlayPaint(() => {
     try {
+      let changed = false;
+
       for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
           if (pointInPolygon([x + 0.5, y + 0.5], polygon)) {
@@ -839,6 +946,7 @@ function eraseOutsidePolygon(polygon) {
           if (!state.editMask[index]) {
             state.editMask[index] = 1;
             state.editCount += 1;
+            changed = true;
           }
         }
       }
@@ -846,10 +954,17 @@ function eraseOutsidePolygon(polygon) {
       state.polygonPoints = [];
       state.polygonPreviewPoint = null;
       drawSelectionOverlay();
-      commitBitmapEdit("Bitmap area kept");
+
+      if (changed) {
+        markUndoChanged();
+        commitBitmapEdit("Bitmap area kept");
+      } else {
+        setStatus("Bitmap unchanged");
+      }
     } catch (error) {
       setStatus(error.message || "Area erase failed");
     } finally {
+      finishUndoAction();
       setBusy(false);
       setWorkingOverlay(false);
     }
@@ -901,9 +1016,27 @@ function clearBitmapEdits() {
     return;
   }
 
-  initBitmapEdits(elements.filteredCanvas.width, elements.filteredCanvas.height);
+  if (!state.editCount) {
+    setStatus("Bitmap unedited");
+    return;
+  }
+
+  beginUndoAction("Undo clear");
+  state.editMask = new Uint8Array(elements.filteredCanvas.width * elements.filteredCanvas.height);
+  state.editCount = 0;
+  state.isErasing = false;
+  state.lastErasePoint = null;
+  state.polygonPoints = [];
+  state.polygonPreviewPoint = null;
+  state.keepPointer = null;
+  state.lastKeepTap = null;
+  state.suppressKeepClickUntil = 0;
+  markUndoChanged();
+  finishUndoAction();
+  drawSelectionOverlay();
   redrawFilteredBitmapFromBase(false);
   invalidateVectorResult();
+  updateUndoUi();
   setStatus("Bitmap edits cleared");
 }
 
@@ -911,6 +1044,7 @@ function installBitmapEditTools() {
   elements.panTool.addEventListener("click", () => setBitmapTool("pan"));
   elements.eraseTool.addEventListener("click", () => setBitmapTool("erase"));
   elements.keepAreaTool.addEventListener("click", () => setBitmapTool("keep"));
+  elements.undoEditButton.addEventListener("click", undoBitmapEdit);
   elements.clearEditsButton.addEventListener("click", clearBitmapEdits);
   elements.eraseRadius.addEventListener("input", () => {
     updateOutputs();
@@ -942,11 +1076,13 @@ function installBitmapEditTools() {
 
     if (state.editTool === "erase") {
       event.preventDefault();
+      beginUndoAction("Undo erase");
       state.isErasing = true;
       state.lastErasePoint = getBitmapPoint(event);
       elements.filteredStage.setPointerCapture(event.pointerId);
 
       if (eraseBitmapCircle(state.lastErasePoint)) {
+        markUndoChanged();
         commitBitmapEdit();
       }
     }
@@ -967,6 +1103,7 @@ function installBitmapEditTools() {
     const point = getBitmapPoint(event);
 
     if (eraseBitmapLine(state.lastErasePoint, point)) {
+      markUndoChanged();
       commitBitmapEdit();
     }
 
@@ -980,6 +1117,7 @@ function installBitmapEditTools() {
 
     state.isErasing = false;
     state.lastErasePoint = null;
+    finishUndoAction();
 
     if (elements.filteredStage.hasPointerCapture(event.pointerId)) {
       elements.filteredStage.releasePointerCapture(event.pointerId);
