@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.6";
-const ASSET_VERSION = "2026-05-18-6";
+const APP_VERSION = "v2026.05.18.7";
+const ASSET_VERSION = "2026-05-18-7";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -26,6 +26,10 @@ const DEFAULT_SETTINGS = {
 };
 
 const elements = {
+  appRoot: document.querySelector("#appRoot"),
+  loadMenu: document.querySelector("#loadMenu"),
+  editButton: document.querySelector("#editButton"),
+  settingsMenu: document.querySelector("#settingsMenu"),
   fileInput: document.querySelector("#fileInput"),
   cameraInput: document.querySelector("#cameraInput"),
   sampleButton: document.querySelector("#sampleButton"),
@@ -36,6 +40,13 @@ const elements = {
   versionBadge: document.querySelector("#versionBadge"),
   workingOverlay: document.querySelector("#workingOverlay"),
   workingOverlayText: document.querySelector("#workingOverlayText"),
+  workspace: document.querySelector(".workspace"),
+  emptyState: document.querySelector("#emptyState"),
+  sourceFigure: document.querySelector("#sourceFigure"),
+  filteredFigure: document.querySelector("#filteredFigure"),
+  maskFigure: document.querySelector("#maskFigure"),
+  svgFigure: document.querySelector("#svgFigure"),
+  closeupFigure: document.querySelector("#closeupFigure"),
   sourceCanvas: document.querySelector("#sourceCanvas"),
   filteredViewport: document.querySelector("#filteredViewport"),
   filteredStage: document.querySelector("#filteredStage"),
@@ -64,6 +75,7 @@ const elements = {
   snapDistance: document.querySelector("#snapDistance"),
   smoothPaths: document.querySelector("#smoothPaths"),
   smoothPasses: document.querySelector("#smoothPasses"),
+  bitmapTools: document.querySelector("#bitmapTools"),
   panTool: document.querySelector("#panTool"),
   eraseTool: document.querySelector("#eraseTool"),
   keepAreaTool: document.querySelector("#keepAreaTool"),
@@ -99,6 +111,7 @@ const state = {
   compare: null,
   previewRequestId: 0,
   isBusy: false,
+  editorOpen: false,
   editTool: "pan",
   editMask: null,
   editWidth: 0,
@@ -148,6 +161,29 @@ const savedControls = [
 
 function setStatus(message) {
   elements.status.textContent = `${message} · ${APP_VERSION}`;
+}
+
+function updateFlowUi() {
+  const hasImage = Boolean(state.image);
+  const hasVector = Boolean(state.svgUrl || state.baseline);
+  const isEditing = hasImage && state.editorOpen;
+
+  elements.appRoot.dataset.flow = hasVector ? "vector" : hasImage ? "image" : "empty";
+  elements.emptyState.hidden = hasImage;
+  elements.editButton.hidden = !hasImage;
+  elements.traceButton.hidden = !hasImage;
+  elements.settingsMenu.hidden = !hasImage;
+  elements.bitmapTools.hidden = !isEditing;
+  elements.downloadLink.hidden = !hasVector;
+  elements.sourceFigure.hidden = !hasImage;
+  elements.filteredFigure.hidden = !isEditing;
+  elements.maskFigure.hidden = !hasVector;
+  elements.svgFigure.hidden = !hasVector;
+  elements.closeupFigure.hidden = !hasVector;
+  elements.workspace?.classList.toggle("is-empty", !hasImage);
+  elements.workspace?.classList.toggle("has-vector", hasVector);
+  elements.editButton.textContent = isEditing ? "Done" : "Edit";
+  elements.editButton.classList.toggle("active", isEditing);
 }
 
 function updateCompareStatus() {
@@ -245,6 +281,7 @@ async function copySettings() {
 function setBusy(isBusy) {
   state.isBusy = isBusy;
   elements.traceButton.disabled = isBusy;
+  elements.editButton.disabled = isBusy;
   elements.sampleButton.disabled = isBusy;
   elements.fileInput.disabled = isBusy;
   elements.cameraInput.disabled = isBusy;
@@ -281,6 +318,7 @@ function setDownload(svgText, width, height, displaySvgText = svgText) {
   elements.downloadLink.classList.remove("disabled");
   elements.downloadLink.removeAttribute("aria-disabled");
   setSvgPreview(displaySvgText, width, height, true);
+  updateFlowUi();
 }
 
 function setSvgPreview(svgText, width, height, resetPosition = false) {
@@ -352,6 +390,8 @@ function resetDownload(clearFocus = false) {
     state.focusX = null;
     state.focusY = null;
   }
+
+  updateFlowUi();
 }
 
 function updateCloseupZoom(resetPosition = false) {
@@ -576,7 +616,7 @@ function setBitmapTool(tool) {
 
 function updateEditStatus() {
   if (state.editTool === "keep" && state.polygonPoints.length) {
-    elements.editStatus.textContent = `Keep area: ${state.polygonPoints.length} points`;
+    elements.editStatus.textContent = `Lasso: ${state.polygonPoints.length} points`;
     return;
   }
 
@@ -1019,8 +1059,11 @@ function loadImageFromUrl(url, name) {
     image.onload = () => {
       state.image = image;
       state.imageName = name || "drawing";
+      state.editorOpen = false;
       drawImage(image);
       previewFilteredBitmap(true);
+      elements.loadMenu.open = false;
+      updateFlowUi();
       setStatus(`${image.naturalWidth} x ${image.naturalHeight}`);
       resolve(image);
     };
@@ -2077,6 +2120,7 @@ function traceImage() {
 
       drawFilteredBitmap(trace.filteredMask, trace.width, trace.height);
       drawCenterlines(trace.skeleton, trace.width, trace.height);
+      state.editorOpen = false;
       setDownload(svg, trace.width, trace.height);
       setStatus(formatTraceStatus(trace.paths.length, trace.stats));
       updateCompareStatus();
@@ -2200,6 +2244,20 @@ elements.cameraInput.addEventListener("change", (event) => readFile(event.target
 elements.sampleButton.addEventListener("click", () => {
   loadImageFromUrl(SAMPLE_IMAGE, "source-robots.png").catch((error) => setStatus(error.message));
 });
+elements.editButton.addEventListener("click", () => {
+  if (!state.image || state.isBusy) {
+    return;
+  }
+
+  state.editorOpen = !state.editorOpen;
+
+  if (state.editorOpen) {
+    setBitmapTool(state.editTool === "pan" ? "erase" : state.editTool);
+    requestAnimationFrame(() => updateFilteredBitmapZoom(false));
+  }
+
+  updateFlowUi();
+});
 elements.traceButton.addEventListener("click", traceImage);
 elements.copySettingsButton.addEventListener("click", copySettings);
 elements.closeupZoom.addEventListener("input", () => {
@@ -2277,6 +2335,5 @@ updateFilteredBitmapZoom(true);
 installBitmapEditTools();
 installFilteredBitmapInspector();
 installCloseupDragging();
-loadImageFromUrl(SAMPLE_IMAGE, "source-robots.png").catch(() => {
-  setStatus("Open an image");
-});
+updateFlowUi();
+setStatus("Ready");

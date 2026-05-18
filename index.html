@@ -7,48 +7,42 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Drawing Vectorizer</title>
-    <link rel="stylesheet" href="styles.css?v=2026-05-18-6">
+    <link rel="stylesheet" href="styles.css?v=2026-05-18-7">
   </head>
   <body>
-    <main class="app">
+    <main id="appRoot" class="app">
       <aside class="panel" aria-label="Vectorizer controls">
         <header class="brand">
           <div class="brand-title">
             <h1>Drawing Vectorizer</h1>
-            <span id="versionBadge">v2026.05.18.6</span>
+            <span id="versionBadge">v2026.05.18.7</span>
           </div>
           <p id="status">Ready</p>
         </header>
 
-        <div class="file-row">
-          <label class="file-button">
-            <span>Open Photo</span>
-            <input id="fileInput" type="file" accept="image/*,.heic,.heif">
-          </label>
-          <label class="file-button">
-            <span>Take Photo</span>
-            <input id="cameraInput" type="file" accept="image/*,.heic,.heif" capture="environment">
-          </label>
-          <button id="sampleButton" type="button">Sample</button>
-        </div>
+        <div class="flow-controls" aria-label="Main actions">
+          <details id="loadMenu" class="command-menu load-menu" open>
+            <summary>Load</summary>
+            <div class="menu-drawer load-drawer">
+              <label class="file-button">
+                <span>File</span>
+                <input id="fileInput" type="file" accept="image/*,.heic,.heif">
+              </label>
+              <label class="file-button">
+                <span>Camera</span>
+                <input id="cameraInput" type="file" accept="image/*,.heic,.heif" capture="environment">
+              </label>
+              <button id="sampleButton" class="quiet-button" type="button">Sample</button>
+            </div>
+          </details>
 
-        <section class="bitmap-tools" aria-label="Bitmap editing">
-          <div class="tool-buttons" role="group" aria-label="Bitmap edit mode">
-            <button id="panTool" class="tool-button active" type="button">Pan</button>
-            <button id="eraseTool" class="tool-button" type="button">Erase</button>
-            <button id="keepAreaTool" class="tool-button" type="button">Keep area</button>
-          </div>
-          <label>
-            <span>Brush</span>
-            <input id="eraseRadius" type="range" min="4" max="90" value="24">
-            <output id="eraseRadiusValue">24</output>
-          </label>
-          <button id="clearEditsButton" type="button">Clear Bitmap Edits</button>
-          <p id="editStatus" class="tool-status">Bitmap unedited</p>
-        </section>
+          <button id="editButton" class="flow-button" type="button" hidden>Edit</button>
+          <button id="traceButton" class="flow-button primary" type="button" hidden>Vector</button>
+          <a id="downloadLink" class="download disabled" href="#" download="drawing-vector.svg" aria-disabled="true" hidden>SVG</a>
 
-        <details class="settings-menu">
+          <details id="settingsMenu" class="command-menu settings-menu" hidden>
           <summary>Settings</summary>
+          <div class="menu-drawer settings-drawer">
 
           <section class="control-group" aria-label="Ink detection">
             <label>
@@ -147,23 +141,40 @@
           </section>
 
           <button id="copySettingsButton" type="button">Copy Settings</button>
+          </div>
         </details>
-
-        <div class="actions">
-          <button id="traceButton" type="button">Generate Paths</button>
-          <a id="downloadLink" class="download disabled" href="#" download="drawing-vector.svg" aria-disabled="true">Save SVG</a>
         </div>
+
+        <section id="bitmapTools" class="bitmap-tools" aria-label="Bitmap editing" hidden>
+          <div class="tool-buttons" role="group" aria-label="Bitmap edit mode">
+            <button id="panTool" class="tool-button active" type="button">Pan</button>
+            <button id="eraseTool" class="tool-button" type="button">Erase</button>
+            <button id="keepAreaTool" class="tool-button" type="button">Lasso</button>
+          </div>
+          <label>
+            <span>Brush</span>
+            <input id="eraseRadius" type="range" min="4" max="90" value="24">
+            <output id="eraseRadiusValue">24</output>
+          </label>
+          <div class="edit-actions">
+            <button id="clearEditsButton" type="button">Clear</button>
+          </div>
+          <p id="editStatus" class="tool-status">Bitmap unedited</p>
+        </section>
       </aside>
 
       <section class="workspace" aria-label="Vectorizer preview">
+        <div id="emptyState" class="empty-state">
+          <p>Load an image</p>
+        </div>
         <div class="preview-grid">
-          <figure>
-            <figcaption>Source</figcaption>
+          <figure id="sourceFigure" hidden>
+            <figcaption>Original</figcaption>
             <canvas id="sourceCanvas"></canvas>
           </figure>
-          <figure class="bitmap-preview">
+          <figure id="filteredFigure" class="bitmap-preview" hidden>
             <figcaption>
-              <span>Bitmap cleanup</span>
+              <span>Edit bitmap</span>
               <span class="bitmap-controls">
                 <output id="filteredZoomValue">9.2x</output>
                 <button id="resetFilteredZoom" type="button">Reset</button>
@@ -176,17 +187,17 @@
               </div>
             </div>
           </figure>
-          <figure>
+          <figure id="maskFigure" hidden>
             <figcaption>Centerlines</figcaption>
             <canvas id="maskCanvas"></canvas>
           </figure>
         </div>
         <div class="inspector-grid">
-          <figure class="svg-preview">
-            <figcaption>SVG</figcaption>
+          <figure id="svgFigure" class="svg-preview" hidden>
+            <figcaption>Vector</figcaption>
             <iframe id="svgFrame" title="Generated SVG preview"></iframe>
           </figure>
-          <figure class="closeup-preview">
+          <figure id="closeupFigure" class="closeup-preview" hidden>
             <figcaption>
               <span>Closeup</span>
               <span class="closeup-controls">
@@ -213,6 +224,6 @@
       </div>
     </div>
 
-    <script src="app.js?v=2026-05-18-6"></script>
+    <script src="app.js?v=2026-05-18-7"></script>
   </body>
 </html>
