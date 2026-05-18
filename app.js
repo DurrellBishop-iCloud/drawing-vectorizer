@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.11";
-const ASSET_VERSION = "2026-05-18-11";
+const APP_VERSION = "v2026.05.18.12";
+const ASSET_VERSION = "2026-05-18-12";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -76,7 +76,6 @@ const elements = {
   smoothPaths: document.querySelector("#smoothPaths"),
   smoothPasses: document.querySelector("#smoothPasses"),
   bitmapTools: document.querySelector("#bitmapTools"),
-  panTool: document.querySelector("#panTool"),
   eraseTool: document.querySelector("#eraseTool"),
   keepAreaTool: document.querySelector("#keepAreaTool"),
   eraseRadius: document.querySelector("#eraseRadius"),
@@ -113,7 +112,7 @@ const state = {
   previewRequestId: 0,
   isBusy: false,
   editorOpen: false,
-  editTool: "pan",
+  editTool: "erase",
   editMask: null,
   editWidth: 0,
   editHeight: 0,
@@ -648,6 +647,28 @@ function updateFilteredBitmapZoom(resetPosition = false, anchor = null) {
   });
 }
 
+function updateFilteredBitmapZoomAtImagePoint(imagePoint, anchorPoint) {
+  const viewport = elements.filteredViewport;
+  const canvas = elements.filteredCanvas;
+  const stage = elements.filteredStage;
+
+  if (!canvas.width || !canvas.height || !imagePoint || !anchorPoint) {
+    updateOutputs();
+    return;
+  }
+
+  const nextScale = getFilteredFitScale() * state.filteredZoom;
+  stage.style.width = `${Math.max(1, canvas.width * nextScale)}px`;
+  stage.style.height = `${Math.max(1, canvas.height * nextScale)}px`;
+  stage.dataset.displayScale = String(nextScale);
+  updateOutputs();
+
+  requestAnimationFrame(() => {
+    viewport.scrollLeft = Math.max(0, imagePoint[0] * nextScale - anchorPoint.x);
+    viewport.scrollTop = Math.max(0, imagePoint[1] * nextScale - anchorPoint.y);
+  });
+}
+
 function getBitmapTouchMetrics(event) {
   if (!event.touches || event.touches.length < 2) {
     return null;
@@ -675,7 +696,6 @@ function getBitmapTouchMetrics(event) {
 
 function setBitmapTool(tool) {
   state.editTool = tool;
-  elements.panTool.classList.toggle("active", tool === "pan");
   elements.eraseTool.classList.toggle("active", tool === "erase");
   elements.keepAreaTool.classList.toggle("active", tool === "keep");
   elements.filteredViewport.classList.toggle("erase-mode", tool === "erase");
@@ -1107,7 +1127,6 @@ function clearBitmapEdits() {
 }
 
 function installBitmapEditTools() {
-  elements.panTool.addEventListener("click", () => setBitmapTool("pan"));
   elements.eraseTool.addEventListener("click", () => setBitmapTool("erase"));
   elements.keepAreaTool.addEventListener("click", () => setBitmapTool("keep"));
   elements.undoEditButton.addEventListener("click", undoBitmapEdit);
@@ -1278,13 +1297,6 @@ function installBitmapEditTools() {
 }
 
 function installFilteredBitmapInspector() {
-  let drag = null;
-
-  function cancelPanDrag() {
-    drag = null;
-    elements.filteredViewport.classList.remove("dragging");
-  }
-
   function beginBitmapPinch(event) {
     if (!state.image || !state.editorOpen) {
       return false;
@@ -1297,11 +1309,15 @@ function installFilteredBitmapInspector() {
     }
 
     event.preventDefault();
-    cancelPanDrag();
     cancelBitmapEditGestureForPinch();
+    const scale = Number(elements.filteredStage.dataset.displayScale) || getFilteredFitScale() * state.filteredZoom;
     state.bitmapPinch = {
       startDistance: metrics.distance,
       startZoom: state.filteredZoom,
+      imagePoint: [
+        (elements.filteredViewport.scrollLeft + metrics.anchor.x) / scale,
+        (elements.filteredViewport.scrollTop + metrics.anchor.y) / scale,
+      ],
     };
     return true;
   }
@@ -1320,7 +1336,7 @@ function installFilteredBitmapInspector() {
     event.preventDefault();
     const ratio = metrics.distance / state.bitmapPinch.startDistance;
     state.filteredZoom = clamp(state.bitmapPinch.startZoom * ratio, 1, 40);
-    updateFilteredBitmapZoom(false, metrics.anchor);
+    updateFilteredBitmapZoomAtImagePoint(state.bitmapPinch.imagePoint, metrics.anchor);
   }
 
   function endBitmapPinch(event) {
@@ -1354,48 +1370,6 @@ function installFilteredBitmapInspector() {
   elements.filteredViewport.addEventListener("touchmove", updateBitmapPinch, { passive: false });
   elements.filteredViewport.addEventListener("touchend", endBitmapPinch, { passive: false });
   elements.filteredViewport.addEventListener("touchcancel", endBitmapPinch, { passive: false });
-
-  elements.filteredViewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || state.editTool !== "pan" || state.bitmapPinch) {
-      return;
-    }
-
-    event.preventDefault();
-    drag = {
-      x: event.clientX,
-      y: event.clientY,
-      scrollLeft: elements.filteredViewport.scrollLeft,
-      scrollTop: elements.filteredViewport.scrollTop,
-    };
-    elements.filteredViewport.classList.add("dragging");
-    elements.filteredViewport.setPointerCapture(event.pointerId);
-  });
-
-  elements.filteredViewport.addEventListener("pointermove", (event) => {
-    if (!drag || state.bitmapPinch) {
-      return;
-    }
-
-    event.preventDefault();
-    elements.filteredViewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.x);
-    elements.filteredViewport.scrollTop = drag.scrollTop - (event.clientY - drag.y);
-  });
-
-  function endDrag(event) {
-    if (!drag) {
-      return;
-    }
-
-    drag = null;
-    elements.filteredViewport.classList.remove("dragging");
-
-    if (elements.filteredViewport.hasPointerCapture(event.pointerId)) {
-      elements.filteredViewport.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  elements.filteredViewport.addEventListener("pointerup", endDrag);
-  elements.filteredViewport.addEventListener("pointercancel", endDrag);
   elements.resetFilteredZoom.addEventListener("click", () => {
     state.filteredZoom = 1;
     updateFilteredBitmapZoom(true);
@@ -2623,7 +2597,7 @@ elements.editButton.addEventListener("click", () => {
   state.editorOpen = !state.editorOpen;
 
   if (state.editorOpen) {
-    setBitmapTool(state.editTool === "pan" ? "erase" : state.editTool);
+    setBitmapTool(state.editTool === "keep" ? "keep" : "erase");
     requestAnimationFrame(() => updateFilteredBitmapZoom(false));
   }
 

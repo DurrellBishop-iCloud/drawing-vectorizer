@@ -255,7 +255,7 @@ body.vector-result-open .panel {
 
 .tool-buttons {
   display: grid;
-  grid-template-columns: repeat(3, minmax(70px, auto));
+  grid-template-columns: repeat(2, minmax(84px, auto));
   gap: 8px;
 }
 
