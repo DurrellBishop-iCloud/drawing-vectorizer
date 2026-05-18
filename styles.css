@@ -449,6 +449,10 @@ canvas {
   min-height: 0;
   background: #ffffff;
   cursor: grab;
+  overscroll-behavior: contain;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .bitmap-viewport.dragging {
@@ -465,6 +469,9 @@ canvas {
   position: relative;
   width: 1px;
   height: 1px;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .bitmap-stage canvas {
@@ -477,6 +484,9 @@ canvas {
   min-height: 0;
   object-fit: initial;
   image-rendering: pixelated;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .selection-canvas {

@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.7";
-const ASSET_VERSION = "2026-05-18-7";
+const APP_VERSION = "v2026.05.18.8";
+const ASSET_VERSION = "2026-05-18-8";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -124,6 +124,9 @@ const state = {
   lastErasePoint: null,
   polygonPoints: [],
   polygonPreviewPoint: null,
+  keepPointer: null,
+  lastKeepTap: null,
+  suppressKeepClickUntil: 0,
   filteredZoom: 1,
   closeupZoom: Number(elements.closeupZoom.value),
   focusX: null,
@@ -169,6 +172,7 @@ function updateFlowUi() {
   const isEditing = hasImage && state.editorOpen;
 
   elements.appRoot.dataset.flow = hasVector ? "vector" : hasImage ? "image" : "empty";
+  document.body.classList.toggle("bitmap-editor-open", isEditing);
   elements.emptyState.hidden = hasImage;
   elements.editButton.hidden = !hasImage;
   elements.traceButton.hidden = !hasImage;
@@ -220,6 +224,18 @@ function updateOutputs() {
   elements.eraseRadiusValue.value = elements.eraseRadius.value;
   elements.filteredZoomValue.value = `${state.filteredZoom.toFixed(1).replace(".0", "")}x`;
   elements.closeupZoomValue.value = `${Number(elements.closeupZoom.value).toFixed(1).replace(".0", "")}x`;
+}
+
+function isTouchPointer(event) {
+  return event.pointerType && event.pointerType !== "mouse";
+}
+
+function preventBitmapTouchScroll(event) {
+  if (!state.image || !state.editorOpen || !elements.filteredViewport.contains(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
 }
 
 function applySettings(settings) {
@@ -637,6 +653,9 @@ function initBitmapEdits(width, height) {
   state.lastErasePoint = null;
   state.polygonPoints = [];
   state.polygonPreviewPoint = null;
+  state.keepPointer = null;
+  state.lastKeepTap = null;
+  state.suppressKeepClickUntil = 0;
   updateEditStatus();
   drawSelectionOverlay();
 }
@@ -889,23 +908,44 @@ function installBitmapEditTools() {
     saveSettings();
   });
 
+  elements.filteredViewport.addEventListener("touchmove", preventBitmapTouchScroll, { passive: false });
+  elements.filteredViewport.addEventListener("gesturestart", preventBitmapTouchScroll, { passive: false });
+  elements.filteredViewport.addEventListener("gesturechange", preventBitmapTouchScroll, { passive: false });
+
   elements.filteredStage.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || state.editTool !== "erase" || !state.image) {
+    if (event.button !== 0 || !state.image) {
       return;
     }
 
-    event.preventDefault();
-    state.isErasing = true;
-    state.lastErasePoint = getBitmapPoint(event);
-    elements.filteredStage.setPointerCapture(event.pointerId);
+    if (state.editTool === "keep" && isTouchPointer(event)) {
+      event.preventDefault();
+      state.keepPointer = {
+        pointerId: event.pointerId,
+        screenX: event.clientX,
+        screenY: event.clientY,
+        startedAt: performance.now(),
+      };
+      state.polygonPreviewPoint = getBitmapPoint(event);
+      elements.filteredStage.setPointerCapture(event.pointerId);
+      drawSelectionOverlay();
+      return;
+    }
 
-    if (eraseBitmapCircle(state.lastErasePoint)) {
-      commitBitmapEdit();
+    if (state.editTool === "erase") {
+      event.preventDefault();
+      state.isErasing = true;
+      state.lastErasePoint = getBitmapPoint(event);
+      elements.filteredStage.setPointerCapture(event.pointerId);
+
+      if (eraseBitmapCircle(state.lastErasePoint)) {
+        commitBitmapEdit();
+      }
     }
   });
 
   elements.filteredStage.addEventListener("pointermove", (event) => {
     if (state.editTool === "keep" && state.polygonPoints.length) {
+      event.preventDefault();
       state.polygonPreviewPoint = getBitmapPoint(event);
       drawSelectionOverlay();
     }
@@ -940,7 +980,56 @@ function installBitmapEditTools() {
   elements.filteredStage.addEventListener("pointerup", finishErase);
   elements.filteredStage.addEventListener("pointercancel", finishErase);
 
+  function finishKeepPointer(event) {
+    if (!state.keepPointer || state.keepPointer.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const pointer = state.keepPointer;
+    state.suppressKeepClickUntil = performance.now() + 700;
+    const moved = Math.hypot(event.clientX - pointer.screenX, event.clientY - pointer.screenY);
+    const elapsed = performance.now() - pointer.startedAt;
+    state.keepPointer = null;
+
+    if (elements.filteredStage.hasPointerCapture(event.pointerId)) {
+      elements.filteredStage.releasePointerCapture(event.pointerId);
+    }
+
+    if (event.type === "pointercancel" || moved > 18 || elapsed > 1200) {
+      state.polygonPreviewPoint = null;
+      drawSelectionOverlay();
+      return;
+    }
+
+    const now = performance.now();
+    const doubleTap = state.lastKeepTap
+      && now - state.lastKeepTap.time < 420
+      && Math.hypot(event.clientX - state.lastKeepTap.x, event.clientY - state.lastKeepTap.y) < 34;
+
+    if (doubleTap && state.polygonPoints.length >= 3) {
+      eraseOutsidePolygon([...state.polygonPoints]);
+      state.lastKeepTap = null;
+      return;
+    }
+
+    state.polygonPoints.push(getBitmapPoint(event));
+    state.lastKeepTap = { time: now, x: event.clientX, y: event.clientY };
+    state.polygonPreviewPoint = null;
+    drawSelectionOverlay();
+    updateEditStatus();
+  }
+
+  elements.filteredStage.addEventListener("pointerup", finishKeepPointer);
+  elements.filteredStage.addEventListener("pointercancel", finishKeepPointer);
+
   elements.filteredStage.addEventListener("click", (event) => {
+    if (performance.now() < state.suppressKeepClickUntil) {
+      event.preventDefault();
+      return;
+    }
+
     if (state.editTool !== "keep" || !state.image || event.detail !== 1) {
       return;
     }
@@ -953,6 +1042,11 @@ function installBitmapEditTools() {
   });
 
   elements.filteredStage.addEventListener("dblclick", (event) => {
+    if (performance.now() < state.suppressKeepClickUntil) {
+      event.preventDefault();
+      return;
+    }
+
     if (state.editTool !== "keep" || !state.image) {
       return;
     }
@@ -991,6 +1085,7 @@ function installFilteredBitmapInspector() {
       return;
     }
 
+    event.preventDefault();
     drag = {
       x: event.clientX,
       y: event.clientY,
@@ -1006,6 +1101,7 @@ function installFilteredBitmapInspector() {
       return;
     }
 
+    event.preventDefault();
     elements.filteredViewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.x);
     elements.filteredViewport.scrollTop = drag.scrollTop - (event.clientY - drag.y);
   });
