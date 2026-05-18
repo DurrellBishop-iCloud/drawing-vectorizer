@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.10";
-const ASSET_VERSION = "2026-05-18-10";
+const APP_VERSION = "v2026.05.18.11";
+const ASSET_VERSION = "2026-05-18-11";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -130,6 +130,7 @@ const state = {
   suppressKeepClickUntil: 0,
   undoStack: [],
   activeUndo: null,
+  bitmapPinch: null,
   filteredZoom: 1,
   closeupZoom: Number(elements.closeupZoom.value),
   focusX: null,
@@ -647,6 +648,31 @@ function updateFilteredBitmapZoom(resetPosition = false, anchor = null) {
   });
 }
 
+function getBitmapTouchMetrics(event) {
+  if (!event.touches || event.touches.length < 2) {
+    return null;
+  }
+
+  const [first, second] = event.touches;
+  const dx = second.clientX - first.clientX;
+  const dy = second.clientY - first.clientY;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance < 8) {
+    return null;
+  }
+
+  const bounds = elements.filteredViewport.getBoundingClientRect();
+
+  return {
+    distance,
+    anchor: {
+      x: (first.clientX + second.clientX) / 2 - bounds.left,
+      y: (first.clientY + second.clientY) / 2 - bounds.top,
+    },
+  };
+}
+
 function setBitmapTool(tool) {
   state.editTool = tool;
   elements.panTool.classList.toggle("active", tool === "pan");
@@ -685,6 +711,7 @@ function initBitmapEdits(width, height, resetUndo = true) {
   state.lastKeepTap = null;
   state.suppressKeepClickUntil = 0;
   state.activeUndo = null;
+  state.bitmapPinch = null;
 
   if (resetUndo) {
     state.undoStack = [];
@@ -766,6 +793,45 @@ function finishUndoAction() {
 
   state.activeUndo = null;
   updateUndoUi();
+}
+
+function cancelActiveUndoAction(restoreSnapshot = false) {
+  if (!state.activeUndo) {
+    return;
+  }
+
+  if (restoreSnapshot) {
+    state.editMask = state.activeUndo.snapshot.mask;
+    state.editCount = state.activeUndo.snapshot.editCount;
+  }
+
+  const last = state.undoStack[state.undoStack.length - 1];
+
+  if (last === state.activeUndo.snapshot) {
+    state.undoStack.pop();
+  }
+
+  state.activeUndo = null;
+  updateUndoUi();
+}
+
+function cancelBitmapEditGestureForPinch() {
+  const restoreErase = state.isErasing && state.activeUndo;
+
+  state.isErasing = false;
+  state.lastErasePoint = null;
+  state.keepPointer = null;
+  state.polygonPreviewPoint = null;
+
+  if (restoreErase) {
+    cancelActiveUndoAction(true);
+    redrawFilteredBitmapFromBase(false);
+    updateEditStatus();
+  } else {
+    finishUndoAction();
+  }
+
+  drawSelectionOverlay();
 }
 
 function undoBitmapEdit() {
@@ -1056,7 +1122,7 @@ function installBitmapEditTools() {
   elements.filteredViewport.addEventListener("gesturechange", preventBitmapTouchScroll, { passive: false });
 
   elements.filteredStage.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || !state.image) {
+    if (event.button !== 0 || !state.image || state.bitmapPinch) {
       return;
     }
 
@@ -1089,6 +1155,10 @@ function installBitmapEditTools() {
   });
 
   elements.filteredStage.addEventListener("pointermove", (event) => {
+    if (state.bitmapPinch) {
+      return;
+    }
+
     if (state.editTool === "keep" && state.polygonPoints.length) {
       event.preventDefault();
       state.polygonPreviewPoint = getBitmapPoint(event);
@@ -1210,6 +1280,59 @@ function installBitmapEditTools() {
 function installFilteredBitmapInspector() {
   let drag = null;
 
+  function cancelPanDrag() {
+    drag = null;
+    elements.filteredViewport.classList.remove("dragging");
+  }
+
+  function beginBitmapPinch(event) {
+    if (!state.image || !state.editorOpen) {
+      return false;
+    }
+
+    const metrics = getBitmapTouchMetrics(event);
+
+    if (!metrics) {
+      return false;
+    }
+
+    event.preventDefault();
+    cancelPanDrag();
+    cancelBitmapEditGestureForPinch();
+    state.bitmapPinch = {
+      startDistance: metrics.distance,
+      startZoom: state.filteredZoom,
+    };
+    return true;
+  }
+
+  function updateBitmapPinch(event) {
+    if (!state.bitmapPinch && !beginBitmapPinch(event)) {
+      return;
+    }
+
+    const metrics = getBitmapTouchMetrics(event);
+
+    if (!metrics) {
+      return;
+    }
+
+    event.preventDefault();
+    const ratio = metrics.distance / state.bitmapPinch.startDistance;
+    state.filteredZoom = clamp(state.bitmapPinch.startZoom * ratio, 1, 40);
+    updateFilteredBitmapZoom(false, metrics.anchor);
+  }
+
+  function endBitmapPinch(event) {
+    if (!state.bitmapPinch || (event.touches && event.touches.length >= 2)) {
+      return;
+    }
+
+    state.bitmapPinch = null;
+    saveSettings();
+    updateOutputs();
+  }
+
   elements.filteredViewport.addEventListener("wheel", (event) => {
     if (!state.image) {
       return;
@@ -1227,8 +1350,13 @@ function installFilteredBitmapInspector() {
     saveSettings();
   }, { passive: false });
 
+  elements.filteredViewport.addEventListener("touchstart", beginBitmapPinch, { passive: false });
+  elements.filteredViewport.addEventListener("touchmove", updateBitmapPinch, { passive: false });
+  elements.filteredViewport.addEventListener("touchend", endBitmapPinch, { passive: false });
+  elements.filteredViewport.addEventListener("touchcancel", endBitmapPinch, { passive: false });
+
   elements.filteredViewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || state.editTool !== "pan") {
+    if (event.button !== 0 || state.editTool !== "pan" || state.bitmapPinch) {
       return;
     }
 
@@ -1244,7 +1372,7 @@ function installFilteredBitmapInspector() {
   });
 
   elements.filteredViewport.addEventListener("pointermove", (event) => {
-    if (!drag) {
+    if (!drag || state.bitmapPinch) {
       return;
     }
 
