@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.8";
-const ASSET_VERSION = "2026-05-18-8";
+const APP_VERSION = "v2026.05.18.9";
+const ASSET_VERSION = "2026-05-18-9";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -174,11 +174,12 @@ function updateFlowUi() {
   elements.appRoot.dataset.flow = hasVector ? "vector" : hasImage ? "image" : "empty";
   document.body.classList.toggle("bitmap-editor-open", isEditing);
   elements.emptyState.hidden = hasImage;
+  elements.loadMenu.hidden = isEditing;
   elements.editButton.hidden = !hasImage;
-  elements.traceButton.hidden = !hasImage;
-  elements.settingsMenu.hidden = !hasImage;
+  elements.traceButton.hidden = !hasImage || isEditing;
+  elements.settingsMenu.hidden = !hasImage || isEditing;
   elements.bitmapTools.hidden = !isEditing;
-  elements.downloadLink.hidden = !hasVector;
+  elements.downloadLink.hidden = !hasVector || isEditing;
   elements.sourceFigure.hidden = !hasImage;
   elements.filteredFigure.hidden = !isEditing;
   elements.maskFigure.hidden = !hasVector;
@@ -186,8 +187,16 @@ function updateFlowUi() {
   elements.closeupFigure.hidden = !hasVector;
   elements.workspace?.classList.toggle("is-empty", !hasImage);
   elements.workspace?.classList.toggle("has-vector", hasVector);
+  elements.workspace?.classList.toggle("is-editing", isEditing);
   elements.editButton.textContent = isEditing ? "Done" : "Edit";
   elements.editButton.classList.toggle("active", isEditing);
+
+  if (isEditing) {
+    elements.sourceFigure.hidden = true;
+    elements.maskFigure.hidden = true;
+    elements.svgFigure.hidden = true;
+    elements.closeupFigure.hidden = true;
+  }
 }
 
 function updateCompareStatus() {
