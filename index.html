@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Drawing Vectorizer</title>
+    <link rel="stylesheet" href="styles.css?v=2026-05-18-6">
+  </head>
+  <body>
+    <main class="app">
+      <aside class="panel" aria-label="Vectorizer controls">
+        <header class="brand">
+          <div class="brand-title">
+            <h1>Drawing Vectorizer</h1>
+            <span id="versionBadge">v2026.05.18.6</span>
+          </div>
+          <p id="status">Ready</p>
+        </header>
+
+        <div class="file-row">
+          <label class="file-button">
+            <span>Open Photo</span>
+            <input id="fileInput" type="file" accept="image/*,.heic,.heif">
+          </label>
+          <label class="file-button">
+            <span>Take Photo</span>
+            <input id="cameraInput" type="file" accept="image/*,.heic,.heif" capture="environment">
+          </label>
+          <button id="sampleButton" type="button">Sample</button>
+        </div>
+
+        <section class="bitmap-tools" aria-label="Bitmap editing">
+          <div class="tool-buttons" role="group" aria-label="Bitmap edit mode">
+            <button id="panTool" class="tool-button active" type="button">Pan</button>
+            <button id="eraseTool" class="tool-button" type="button">Erase</button>
+            <button id="keepAreaTool" class="tool-button" type="button">Keep area</button>
+          </div>
+          <label>
+            <span>Brush</span>
+            <input id="eraseRadius" type="range" min="4" max="90" value="24">
+            <output id="eraseRadiusValue">24</output>
+          </label>
+          <button id="clearEditsButton" type="button">Clear Bitmap Edits</button>
+          <p id="editStatus" class="tool-status">Bitmap unedited</p>
+        </section>
+
+        <details class="settings-menu">
+          <summary>Settings</summary>
+
+          <section class="control-group" aria-label="Ink detection">
+            <label>
+              <span>Black threshold</span>
+              <input id="absoluteThreshold" type="range" min="40" max="170" value="81">
+              <output id="absoluteValue">81</output>
+            </label>
+
+            <label>
+              <span>Paper contrast</span>
+              <input id="relativeThreshold" type="range" min="10" max="90" value="33">
+              <output id="relativeValue">33</output>
+            </label>
+
+            <label>
+              <span>Blur radius</span>
+              <input id="blurRadius" type="range" min="4" max="40" value="26">
+              <output id="blurValue">26</output>
+            </label>
+
+            <label>
+              <span>Minimum speck</span>
+              <input id="minimumArea" type="range" min="0" max="80" value="80">
+              <output id="minimumValue">80</output>
+            </label>
+
+            <label>
+              <span>Stroke width</span>
+              <input id="strokeWidth" type="range" min="1" max="16" value="8">
+              <output id="strokeWidthValue">8</output>
+            </label>
+
+            <label>
+              <span>Simplify paths</span>
+              <input id="simplifyAmount" type="range" min="0" max="5" step="0.25" value="2.25">
+              <output id="simplifyValue">2.25</output>
+            </label>
+
+            <label>
+              <span>Minimum path</span>
+              <input id="minimumPathLength" type="range" min="0" max="120" value="0">
+              <output id="minimumPathValue">0</output>
+            </label>
+          </section>
+
+          <section class="switches" aria-label="Output options">
+            <label>
+              <input id="medianFilter" type="checkbox" checked>
+              <span>Median cleanup</span>
+            </label>
+            <label>
+              <input id="whiteBackground" type="checkbox">
+              <span>White SVG background</span>
+            </label>
+            <label>
+              <input id="compareMode" type="checkbox" checked>
+              <span>Tweak compare</span>
+            </label>
+            <p id="compareStatus" class="compare-status">No baseline</p>
+          </section>
+
+          <section class="cleanup-panel" aria-label="Path cleanup">
+            <h2>Path cleanup</h2>
+            <label class="toggle">
+              <input id="joinAlignedGaps" type="checkbox">
+              <span>Join aligned gaps</span>
+            </label>
+            <label>
+              <span>Join distance</span>
+              <input id="joinDistance" type="range" min="1" max="80" value="8">
+              <output id="joinDistanceValue">8</output>
+            </label>
+            <label>
+              <span>Join angle</span>
+              <input id="joinAngle" type="range" min="5" max="70" value="13">
+              <output id="joinAngleValue">13°</output>
+            </label>
+            <label class="toggle">
+              <input id="snapEndpoints" type="checkbox" checked>
+              <span>Snap nearby ends</span>
+            </label>
+            <label>
+              <span>Snap distance</span>
+              <input id="snapDistance" type="range" min="1" max="50" value="40">
+              <output id="snapDistanceValue">40</output>
+            </label>
+            <label class="toggle">
+              <input id="smoothPaths" type="checkbox" checked>
+              <span>Smooth paths</span>
+            </label>
+            <label>
+              <span>Smooth passes</span>
+              <input id="smoothPasses" type="range" min="1" max="5" value="2">
+              <output id="smoothPassesValue">2</output>
+            </label>
+          </section>
+
+          <button id="copySettingsButton" type="button">Copy Settings</button>
+        </details>
+
+        <div class="actions">
+          <button id="traceButton" type="button">Generate Paths</button>
+          <a id="downloadLink" class="download disabled" href="#" download="drawing-vector.svg" aria-disabled="true">Save SVG</a>
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="Vectorizer preview">
+        <div class="preview-grid">
+          <figure>
+            <figcaption>Source</figcaption>
+            <canvas id="sourceCanvas"></canvas>
+          </figure>
+          <figure class="bitmap-preview">
+            <figcaption>
+              <span>Bitmap cleanup</span>
+              <span class="bitmap-controls">
+                <output id="filteredZoomValue">9.2x</output>
+                <button id="resetFilteredZoom" type="button">Reset</button>
+              </span>
+            </figcaption>
+            <div id="filteredViewport" class="bitmap-viewport">
+              <div id="filteredStage" class="bitmap-stage">
+                <canvas id="filteredCanvas"></canvas>
+                <canvas id="selectionCanvas" class="selection-canvas"></canvas>
+              </div>
+            </div>
+          </figure>
+          <figure>
+            <figcaption>Centerlines</figcaption>
+            <canvas id="maskCanvas"></canvas>
+          </figure>
+        </div>
+        <div class="inspector-grid">
+          <figure class="svg-preview">
+            <figcaption>SVG</figcaption>
+            <iframe id="svgFrame" title="Generated SVG preview"></iframe>
+          </figure>
+          <figure class="closeup-preview">
+            <figcaption>
+              <span>Closeup</span>
+              <span class="closeup-controls">
+                <label>
+                  <span>Zoom</span>
+                  <input id="closeupZoom" type="range" min="1" max="24" step="0.5" value="1">
+                  <output id="closeupZoomValue">1x</output>
+                </label>
+                <button id="resetCloseup" type="button">Reset</button>
+              </span>
+            </figcaption>
+            <div id="closeupViewport" class="closeup-viewport">
+              <div id="closeupContent" class="closeup-content"></div>
+            </div>
+          </figure>
+        </div>
+      </section>
+    </main>
+
+    <div id="workingOverlay" class="working-overlay" role="status" aria-live="polite" aria-hidden="true" hidden>
+      <div class="working-card">
+        <div class="working-spinner" aria-hidden="true"></div>
+        <p id="workingOverlayText">Generating paths</p>
+      </div>
+    </div>
+
+    <script src="app.js?v=2026-05-18-6"></script>
+  </body>
+</html>
