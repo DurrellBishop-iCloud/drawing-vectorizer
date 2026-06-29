@@ -1,5 +1,5 @@
-const APP_VERSION = "v2026.05.18.12";
-const ASSET_VERSION = "2026-05-18-12";
+const APP_VERSION = "v2026.06.29.1";
+const ASSET_VERSION = "2026-06-29-1";
 const SAMPLE_IMAGE = `source-robots.png?v=${ASSET_VERSION}`;
 const SETTINGS_KEY = "drawing-vectorizer-settings";
 const DEFAULT_SETTINGS = {
@@ -1674,32 +1674,34 @@ function skeletonize(mask, width, height) {
           const p7 = skeleton[i + width - 1];
           const p8 = skeleton[i - 1];
           const p9 = skeleton[i - width - 1];
-          const neighbors = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
 
-          if (neighbors < 2 || neighbors > 6) {
+          // Guo-Hall thinning. Unlike Zhang-Suen, it reduces diagonal strokes
+          // to a single pixel instead of leaving a 2px staircase, which is what
+          // turned every diagonal into a row of tiny triangles after tracing.
+          const connectivity =
+            (!p2 && (p3 || p4)) +
+            (!p4 && (p5 || p6)) +
+            (!p6 && (p7 || p8)) +
+            (!p8 && (p9 || p2));
+
+          if (connectivity !== 1) {
             continue;
           }
 
-          const transitions =
-            (!p2 && p3) +
-            (!p3 && p4) +
-            (!p4 && p5) +
-            (!p5 && p6) +
-            (!p6 && p7) +
-            (!p7 && p8) +
-            (!p8 && p9) +
-            (!p9 && p2);
+          const n1 = (p9 || p2) + (p3 || p4) + (p5 || p6) + (p7 || p8);
+          const n2 = (p2 || p3) + (p4 || p5) + (p6 || p7) + (p8 || p9);
+          const count = n1 < n2 ? n1 : n2;
 
-          if (transitions !== 1) {
+          if (count < 2 || count > 3) {
             continue;
           }
 
-          const keepConnected =
+          const keep =
             step === 0
-              ? p2 * p4 * p6 === 0 && p4 * p6 * p8 === 0
-              : p2 * p4 * p8 === 0 && p2 * p6 * p8 === 0;
+              ? (p6 || p7 || !p9) && p8
+              : (p2 || p3 || !p5) && p4;
 
-          if (keepConnected) {
+          if (!keep) {
             deletions.push(i);
           }
         }
